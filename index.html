@@ -1,0 +1,704 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智能雪盔遥测系统 · 摔倒检测与AI分析</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: #f4f7fc; color: #1e2a3a; padding: 20px; }
+        .dashboard-container { max-width: 1400px; margin: 0 auto; }
+        .header-card { background: linear-gradient(135deg, #0b2b3b 0%, #1a4a5f 100%); border-radius: 28px; padding: 20px 28px; margin-bottom: 24px; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.1); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+        .title-section h1 { font-size: 1.7rem; font-weight: 700; display: flex; align-items: center; gap: 12px; }
+        .title-section p { font-size: 0.85rem; opacity: 0.8; margin-top: 6px; }
+        .config-panel { background: rgba(255,255,255,0.15); backdrop-filter: blur(6px); border-radius: 48px; padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+        .input-group { display: flex; flex-direction: column; gap: 4px; }
+        .input-group label { font-size: 0.7rem; font-weight: 500; opacity: 0.7; }
+        .input-group input, .input-group select { background: white; border: none; padding: 8px 12px; border-radius: 28px; font-size: 0.85rem; width: 160px; font-weight: 500; color: #1e2a3a; outline: none; }
+        .btn-refresh-config { background: #ffb347; border: none; color: #1e2a3a; padding: 8px 20px; border-radius: 40px; font-weight: 700; font-size: 0.8rem; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
+        .btn-refresh-config:hover { background: #ffa01e; transform: scale(0.97); }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 20px; margin-bottom: 28px; }
+        .metric-card { background: white; border-radius: 24px; padding: 20px 18px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); transition: transform 0.2s; border: 1px solid rgba(0,0,0,0.05); }
+        .metric-card:hover { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+        .metric-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: #5b7a8a; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .metric-value { font-size: 2.4rem; font-weight: 800; color: #0f3b4c; line-height: 1.2; }
+        .metric-unit { font-size: 1rem; font-weight: 500; color: #6c8d9c; margin-left: 4px; }
+        .metric-sub { font-size: 0.75rem; color: #8ba6b3; margin-top: 8px; }
+        .badge-warning { background: #ffe8e0; color: #c45c1a; border-radius: 40px; padding: 2px 10px; font-size: 0.7rem; font-weight: 600; display: inline-block; }
+        .map-card { background: white; border-radius: 28px; overflow: hidden; box-shadow: 0 8px 20px rgba(0,0,0,0.08); margin-bottom: 20px; border: 1px solid #e2edf2; }
+        .map-header { padding: 14px 20px; background: #ffffffdd; border-bottom: 1px solid #e9f0f3; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        #map { height: 380px; width: 100%; z-index: 1; background: #e9f0f3; }
+        .status-bar { display: flex; justify-content: space-between; align-items: center; background: #eef3f7; padding: 12px 20px; border-radius: 48px; margin-top: 20px; font-size: 0.8rem; font-weight: 500; flex-wrap: wrap; gap: 10px; }
+        .record-controls { background: #eef3f7; border-radius: 48px; padding: 12px 20px; margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+        .record-buttons { display: flex; gap: 12px; }
+        .record-btn { border: none; padding: 8px 24px; border-radius: 40px; font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .record-btn.start { background: #2bc48a; color: white; }
+        .record-btn.start:hover { background: #22a06f; }
+        .record-btn.stop { background: #e26d5c; color: white; }
+        .record-btn.stop:hover { background: #c45a4a; }
+        .record-btn.export { background: #1e6f5c; color: white; }
+        .record-btn.export:hover { background: #154f41; }
+        .record-stats { background: white; padding: 6px 16px; border-radius: 40px; font-size: 0.8rem; font-weight: 600; color: #1e2a3a; }
+        .live-badge { display: flex; align-items: center; gap: 8px; background: #cbe5ea; padding: 5px 14px; border-radius: 40px; }
+        .led-green { width: 10px; height: 10px; background: #2bc48a; border-radius: 50%; box-shadow: 0 0 5px #2bc48a; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.4; transform: scale(0.8);} 100% { opacity: 1; transform: scale(1.2);} }
+        .debug-collapsible { margin-top: 16px; border-radius: 16px; background: #1e2a3a; overflow: hidden; }
+        .debug-header { background: #2d3e4e; padding: 10px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #c0dfe5; font-weight: 600; font-size: 0.8rem; user-select: none; }
+        .debug-header i { transition: transform 0.2s; }
+        .debug-content { background: #1e2a3a; color: #a8dadc; font-family: monospace; font-size: 0.7rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; padding: 12px 16px; border-top: 1px solid #3a4e5e; max-height: 300px; overflow-y: auto; }
+        .ai-coach-card { background: white; border-radius: 28px; margin-top: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); border: 1px solid #e2edf2; overflow: hidden; }
+        .ai-header { background: #2c5a6e; padding: 14px 24px; color: white; font-weight: 700; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+        .ai-header i { font-size: 1.2rem; }
+        .ai-body { padding: 20px; background: #fefef7; transition: all 0.2s; }
+        .ai-config-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; background: #f0f5f8; padding: 16px; border-radius: 24px; }
+        .ai-config-item { flex: 1; min-width: 180px; }
+        .ai-config-item label { display: block; font-size: 0.7rem; font-weight: 600; color: #2c5a6e; margin-bottom: 5px; }
+        .ai-config-item input, .ai-config-item select { width: 100%; padding: 8px 12px; border-radius: 40px; border: 1px solid #cbdbe2; background: white; font-size: 0.8rem; }
+        .equip-selector { display: flex; gap: 16px; align-items: center; background: #eef3f7; padding: 8px 20px; border-radius: 48px; margin-bottom: 16px; }
+        .equip-selector label { font-weight: 600; color: #2c5a6e; }
+        .equip-option { display: inline-flex; align-items: center; gap: 6px; background: white; padding: 6px 16px; border-radius: 40px; cursor: pointer; border: 1px solid #cbdbe2; transition: all 0.2s; }
+        .equip-option.active { background: #2c5a6e; color: white; border-color: #2c5a6e; }
+        .equip-option i { font-size: 0.9rem; }
+        .ai-analysis-btn { background: #3b8db0; border: none; color: white; padding: 10px 28px; border-radius: 40px; font-weight: 700; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 10px; margin-top: 8px; }
+        .ai-analysis-btn:hover { background: #2c6f8c; transform: scale(0.97); }
+        .ai-result-box { background: #f4f9fe; border-radius: 24px; padding: 20px; margin-top: 16px; border-left: 6px solid #ffb347; font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+        .ai-loading { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(0,0,0,0.1); border-radius: 50%; border-top-color: #ffb347; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        footer { text-align: center; font-size: 0.7rem; color: #7d9aa8; margin-top: 20px; }
+        .track-info-badge { background: #2c5a6e; color: white; border-radius: 32px; padding: 4px 12px; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
+        .fall-marker { background-color: #e34132; width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px rgba(227,65,50,0.8); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: white; }
+        @media (max-width: 780px) {
+            .header-card { flex-direction: column; align-items: flex-start; gap: 16px; }
+            .config-panel { width: 100%; justify-content: space-between; }
+            .metric-value { font-size: 1.8rem; }
+            .record-controls { flex-direction: column; align-items: stretch; }
+            .record-buttons { justify-content: center; }
+            .ai-config-row { flex-direction: column; }
+            .equip-selector { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard-container">
+    <div class="header-card">
+        <div class="title-section">
+            <h1><i class="fas fa-hard-hat"></i> <span class="i18n" data-zh="SKILOGGER · 雪盔遥测" data-en="SKILOGGER · Smart Helmet">SKILOGGER · 雪盔遥测</span></h1>
+            <p><i class="fas fa-ambulance"></i> <span class="i18n" data-zh="实时状态机 | AI分析" data-en="Real-time FSM | AI Analysis">实时状态机 | AI分析</span></p>
+        </div>
+        <div class="config-panel">
+            <button id="langToggleBtn" class="btn-refresh-config" style="background:#4a90e2; color:white;"><i class="fas fa-language"></i> <span id="langToggleText">EN</span></button>
+            <div class="input-group"><label><i class="fas fa-key"></i> UID</label><input type="text" id="uidInput" value="c3ace5d30eaaaf913aec1965b85384a1" class="i18n-ph" data-zh-ph="用户UID" data-en-ph="User UID" placeholder="用户UID"></div>
+            <div class="input-group"><label><i class="fas fa-tag"></i> Topic</label><input type="text" id="topicInput" value="gps001" class="i18n-ph" data-zh-ph="主题名" data-en-ph="Topic Name" placeholder="主题名"></div>
+            <div class="input-group"><label><i class="fas fa-code-branch"></i> <span class="i18n" data-zh="协议" data-en="Protocol">协议</span></label><select id="typeSelect"><option value="1">MQTT (type=1)</option><option value="3">TCP (type=3)</option></select></div>
+            <button id="applyBtn" class="btn-refresh-config"><i class="fas fa-sync-alt"></i> <span class="i18n" data-zh="应用" data-en="Apply">应用</span></button>
+        </div>
+    </div>
+
+    <div class="metrics-grid">
+        <div class="metric-card"><div class="metric-title"><i class="fas fa-map-marker-alt"></i> <span class="i18n" data-zh="纬度 / 经度" data-en="Lat / Lng">纬度 / 经度</span></div><div class="metric-value" id="latVal">--</div><div class="metric-value" id="lngVal" style="font-size:1.5rem; margin-top: 4px;">--</div><div class="metric-sub"><span class="i18n" data-zh="WGS84 原始坐标" data-en="WGS84 Raw">WGS84 原始坐标</span></div></div>
+        <div class="metric-card"><div class="metric-title"><i class="fas fa-tachometer-alt"></i> <span class="i18n" data-zh="对地速度" data-en="Ground Speed">对地速度</span></div><div class="metric-value"><span id="speedVal">0.0</span><span class="metric-unit">km/h</span></div><div class="metric-sub"><span class="i18n" data-zh="瞬时雪面速度" data-en="Instant Surface Speed">瞬时雪面速度</span></div></div>
+        <div class="metric-card"><div class="metric-title"><i class="fas fa-mountain"></i> <span class="i18n" data-zh="海拔高度" data-en="Altitude">海拔高度</span></div><div class="metric-value"><span id="altVal">0.0</span><span class="metric-unit">m</span></div><div class="metric-sub"><span class="i18n" data-zh="相对海平面" data-en="Relative to Sea Level">相对海平面</span></div></div>
+        <div class="metric-card"><div class="metric-title"><i class="fas fa-waveform"></i> <span class="i18n" data-zh="合成G力" data-en="Combined G-Force">合成G力</span></div><div class="metric-value"><span id="gVal">0.00</span><span class="metric-unit">g</span></div><div class="metric-sub"><span class="i18n" data-zh="加速度模量" data-en="Acceleration Modulus">加速度模量</span></div></div>
+        <div class="metric-card"><div class="metric-title"><i class="fas fa-sliders-h"></i> <span class="i18n" data-zh="姿态倾角" data-en="Attitude Tilt">姿态倾角</span></div><div class="metric-value"><span id="tiltVal">0.0</span><span class="metric-unit">°</span></div><div class="metric-sub"><span class="i18n" data-zh="前后俯仰角 (pitch)" data-en="Pitch Angle">前后俯仰角 (pitch)</span></div></div>
+        
+        <div class="metric-card">
+            <div class="metric-title"><i class="fas fa-sync"></i> <span class="i18n" data-zh="三轴角速度" data-en="3-Axis Gyro">三轴角速度</span></div>
+            <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color:#e26d5c; font-weight:700; font-size:0.9rem;"><span class="i18n" data-zh="X轴 (Pitch)" data-en="X-Axis (Pitch)">X轴 (Pitch)</span></span>
+                    <div><span id="gxVal" class="metric-value" style="font-size: 1.4rem;">0.0</span><span class="metric-unit">°/s</span></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color:#2bc48a; font-weight:700; font-size:0.9rem;"><span class="i18n" data-zh="Y轴 (Roll)" data-en="Y-Axis (Roll)">Y轴 (Roll)</span></span>
+                    <div><span id="gyVal" class="metric-value" style="font-size: 1.4rem;">0.0</span><span class="metric-unit">°/s</span></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color:#3b8db0; font-weight:700; font-size:0.9rem;"><span class="i18n" data-zh="Z轴 (Yaw)" data-en="Z-Axis (Yaw)">Z轴 (Yaw)</span></span>
+                    <div><span id="gzVal" class="metric-value" style="font-size: 1.4rem;">0.0</span><span class="metric-unit">°/s</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="map-card"><div class="map-header"><span><i class="fas fa-location-dot" style="color:#e34132;"></i> <span class="i18n" data-zh="实时定位" data-en="Live Location">实时定位</span></span><span class="badge-warning" id="gpsStatusBadge"><i class="fas fa-satellite-dish"></i> <span id="gpsStatusText" class="i18n" data-zh="等待数据..." data-en="Waiting for data...">等待数据...</span></span></div><div id="map"></div></div>
+
+    <div class="record-controls">
+        <div class="record-buttons">
+            <button id="startRecordBtn" class="record-btn start"><i class="fas fa-play"></i> <span class="i18n" data-zh="开始滑雪记录" data-en="Start Recording">开始滑雪记录</span></button>
+            <button id="stopRecordBtn" class="record-btn stop" disabled><i class="fas fa-stop"></i> <span class="i18n" data-zh="结束滑雪记录" data-en="Stop Recording">结束滑雪记录</span></button>
+            <button id="exportBtn" class="record-btn export"><i class="fas fa-download"></i> <span class="i18n" data-zh="导出数据 (CSV)" data-en="Export Data (CSV)">导出数据 (CSV)</span></button>
+        </div>
+        <div class="record-stats" id="recordStats"><i class="fas fa-database"></i> <span class="i18n" data-zh="未记录" data-en="Not Recorded">未记录</span></div>
+        <div id="fallCountBadge" class="track-info-badge"><i class="fas fa-exclamation-triangle"></i> <span id="fallCount">0</span> <span class="i18n" data-zh="次摔倒" data-en="falls">次摔倒</span></div>
+    </div>
+
+    <div class="ai-coach-card">
+        <div class="ai-header" id="aiHeaderToggle">
+            <i class="fas fa-robot"></i> <span><span class="i18n" data-zh="🏆 AI 滑雪教练" data-en="🏆 AI Ski Coach">🏆 AI 滑雪教练</span></span>
+            <i class="fas fa-chevron-down" style="margin-left:auto;"></i>
+        </div>
+        <div class="ai-body" id="aiBody">
+            <div class="ai-config-row">
+                <div class="ai-config-item"><label><i class="fas fa-cloud-upload-alt"></i> <span class="i18n" data-zh="API地址" data-en="API URL">API地址</span></label><input type="text" id="llmApiUrl" placeholder="https://api.deepseek.com/v1/chat/completions" value="https://api.deepseek.com/v1/chat/completions"></div>
+                <div class="ai-config-item"><label><i class="fas fa-key"></i> API Key</label><input type="password" id="llmApiKey" placeholder="sk-xxxx"></div>
+                <div class="ai-config-item"><label><i class="fas fa-cog"></i> <span class="i18n" data-zh="模型名称" data-en="Model Name">模型名称</span></label><input type="text" id="llmModel" value="deepseek-chat" placeholder="deepseek-chat"></div>
+                <div class="ai-config-item"><label><i class="fas fa-database"></i> <span class="i18n" data-zh="保存配置" data-en="Save Config">保存配置</span></label><button id="saveAiConfigBtn" class="btn-refresh-config" style="background:#3b8db0; color:white; margin-top:0;"><i class="fas fa-save"></i> <span class="i18n" data-zh="保存" data-en="Save">保存</span></button></div>
+            </div>
+            <div class="equip-selector">
+                <label><i class="fas fa-boot"></i> <span class="i18n" data-zh="本次滑雪装备：" data-en="Equipment:">本次滑雪装备：</span></label>
+                <div class="equip-option" data-equip="snowboard" id="equipSnowboard">
+                    <i class="fas fa-snowboarding"></i> <span class="i18n" data-zh="单板 🏂" data-en="Snowboard 🏂">单板 🏂</span>
+                </div>
+                <div class="equip-option" data-equip="ski" id="equipSki">
+                    <i class="fas fa-skiing"></i> <span class="i18n" data-zh="双板 🎿" data-en="Ski 🎿">双板 🎿</span>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:12px;">
+                <button id="analyzeWithAI" class="ai-analysis-btn"><i class="fas fa-brain"></i> <span class="i18n" data-zh="🧠 AI分析本次滑雪数据" data-en="🧠 AI Analyze Ski Data">🧠 AI分析本次滑雪数据</span></button>
+                <span style="font-size:0.7rem; color:#8ba6b3;"><i class="fas fa-info-circle"></i> <span class="i18n" data-zh="自动检测摔倒事件，AI将分析原因与改进建议" data-en="Automatically detects falls, AI gives cause & suggestions">自动检测摔倒事件，AI将分析原因与改进建议</span></span>
+            </div>
+            <div id="aiResultArea" class="ai-result-box">
+                <i class="fas fa-comment-dots"></i> <span class="i18n" data-zh="点击“AI分析”后，教练将根据您的滑行数据（包括摔倒事件）给出专业分析。" data-en="Click 'AI Analyze' to get professional feedback including fall analysis.">点击“AI分析”后，教练将根据您的滑行数据（包括摔倒事件）给出专业分析。</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="live-badge"><span class="led-green"></span> <span class="i18n" data-zh="动态轮询" data-en="Dynamic Polling">动态轮询</span></div>
+        <div id="updateTimeDisplay"><i class="far fa-clock"></i> <span class="i18n" data-zh="上次更新: --:--:--" data-en="Last Update: --:--:--">上次更新: --:--:--</span></div>
+        <div id="apiStatus"><i class="fas fa-check-circle"></i> <span class="i18n" data-zh="在线监控" data-en="Online Monitor">在线监控</span></div>
+        <div id="fsmStatus"><i class="fas fa-microchip"></i> <span class="i18n" data-zh="状态机: 正常" data-en="FSM: Normal">状态机: 正常</span></div>
+    </div>
+
+    <div class="debug-collapsible">
+        <div class="debug-header" id="debugHeader">
+            <span><i class="fas fa-bug"></i> <span class="i18n" data-zh="调试信息 (点击展开/收起)" data-en="Debug Info (Click to toggle)">调试信息 (点击展开/收起)</span></span>
+            <i class="fas fa-chevron-down" id="debugToggleIcon"></i>
+        </div>
+        <div class="debug-content" id="debugPanel" style="display: none;"></div>
+    </div>
+
+    <footer><i class="fas fa-microchip"></i> <span class="i18n" data-zh="摔倒检测状态机 | 红色标记 | AI原因分析" data-en="Fall Detection FSM | Red Markers | AI Cause Analysis">摔倒检测状态机 | 红色标记 | AI原因分析</span></footer>
+</div>
+
+<script>
+    // ==================== 多语言翻译核心 ====================
+    let currentLang = 'zh';
+    function t(zhStr, enStr) { return currentLang === 'zh' ? zhStr : enStr; }
+
+    document.getElementById('langToggleBtn').addEventListener('click', () => {
+        currentLang = currentLang === 'zh' ? 'en' : 'zh';
+        document.getElementById('langToggleText').innerText = currentLang === 'zh' ? 'EN' : '中';
+        document.querySelectorAll('.i18n').forEach(el => { el.innerHTML = el.getAttribute(`data-${currentLang}`); });
+        document.querySelectorAll('.i18n-ph').forEach(el => { el.placeholder = el.getAttribute(`data-${currentLang}-ph`); });
+        updateRecordStatsDisplay();
+        updateTrackCountUI();
+        refreshAllPointPopups();
+        updateFSMDisplay();
+    });
+
+    // ==================== 坐标转换 (WGS84→GCJ02) ====================
+    const a = 6378245.0; const ee = 0.00669342162296594323;
+    function transformLat(x, y) { let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x)); ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0; ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0; ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0; return ret; }
+    function transformLng(x, y) { let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x)); ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0; ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0; ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0; return ret; }
+    function outOfChina(lng, lat) { return (lng < 72.004 || lng > 137.8347) || (lat < 0.8293 || lat > 55.8271); }
+    function wgs84ToGcj02(lng, lat) { if (outOfChina(lng, lat)) return [lng, lat]; let dLat = transformLat(lng - 105.0, lat - 35.0); let dLng = transformLng(lng - 105.0, lat - 35.0); let radLat = lat / 180.0 * Math.PI; let magic = Math.sin(radLat); magic = 1 - ee * magic * magic; let sqrtMagic = Math.sqrt(magic); dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI); dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * Math.PI); return [lng + dLng, lat + dLat]; }
+
+    // ==================== 摔倒检测状态机 ====================
+    const FSM = {
+        NORMAL: 0,
+        LOSS_OF_CONTROL: 1,
+        IMPACT: 2,
+        ABNORMAL_REST: 3
+    };
+    let currentState = FSM.NORMAL;
+    let stateEnterTime = 0;
+    let impactDetected = false;
+    let impactTimestamp = 0;
+    let abnormalRestStart = 0;
+    let fallEvents = [];      // 存储摔倒事件 { timestamp, lat, lng, accMax, gyroMax, tilt, speed }
+
+    // 阈值（可根据实测调整）
+    const THRESHOLD = {
+        LOSS_ACC_LOW: 0.5,      // g
+        LOSS_GYRO_HIGH: 300,    // deg/s
+        IMPACT_ACC_HIGH: 3.0,   // g
+        IMPACT_TIMEOUT: 1.5,    // 秒
+        REST_TILT: 60,          // 度
+        REST_SPEED: 1.0,        // m/s
+        REST_GYRO_LOW: 20,      // deg/s
+        REST_ACC_NEAR_G: 0.5,   // 与1g的差值
+        REST_DURATION: 3.0      // 秒
+    };
+
+    function updateFSM(dataPoint) {
+        if (!isRecording) return;
+        const now = Date.now() / 1000;
+        const acc = dataPoint.g_force;
+        const gyroMag = Math.sqrt(dataPoint.gx*dataPoint.gx + dataPoint.gy*dataPoint.gy + dataPoint.gz*dataPoint.gz);
+        const tilt = Math.abs(dataPoint.tilt_deg);
+        const speed = dataPoint.speed_kmh / 3.6; // km/h -> m/s
+        
+        let newState = currentState;
+        
+        switch(currentState) {
+            case FSM.NORMAL:
+                if (acc < THRESHOLD.LOSS_ACC_LOW || gyroMag > THRESHOLD.LOSS_GYRO_HIGH) {
+                    newState = FSM.LOSS_OF_CONTROL;
+                    stateEnterTime = now;
+                    impactDetected = false;
+                    addDebugMsg(t(`[FSM] 失控/腾空 检测: acc=${acc.toFixed(2)}g, gyroMag=${gyroMag.toFixed(0)}°/s`, `[FSM] Loss of control detected: acc=${acc.toFixed(2)}g, gyroMag=${gyroMag.toFixed(0)}°/s`));
+                }
+                break;
+            case FSM.LOSS_OF_CONTROL:
+                if (!impactDetected && acc > THRESHOLD.IMPACT_ACC_HIGH && (now - stateEnterTime) < THRESHOLD.IMPACT_TIMEOUT) {
+                    impactDetected = true;
+                    impactTimestamp = now;
+                    newState = FSM.IMPACT;
+                    addDebugMsg(t(`[FSM] 撞击检测: acc=${acc.toFixed(2)}g`, `[FSM] Impact detected: acc=${acc.toFixed(2)}g`));
+                } else if ((now - stateEnterTime) > THRESHOLD.IMPACT_TIMEOUT) {
+                    newState = FSM.NORMAL;
+                    addDebugMsg(t(`[FSM] 失控超时未撞击，重置`, `[FSM] Loss of control timeout, reset`));
+                }
+                break;
+            case FSM.IMPACT:
+                // 进入撞击状态后，等待异常静止条件
+                const tiltOk = tilt > THRESHOLD.REST_TILT;
+                const speedOk = speed < THRESHOLD.REST_SPEED;
+                const gyroOk = gyroMag < THRESHOLD.REST_GYRO_LOW;
+                const accOk = Math.abs(acc - 1.0) < THRESHOLD.REST_ACC_NEAR_G;
+                if (tiltOk && speedOk && gyroOk && accOk) {
+                    if (abnormalRestStart === 0) {
+                        abnormalRestStart = now;
+                    } else if ((now - abnormalRestStart) >= THRESHOLD.REST_DURATION) {
+                        // 确认摔倒
+                        newState = FSM.ABNORMAL_REST;
+                        addDebugMsg(t(`[FSM] 确认摔倒 (异常静止持续 ${(now-abnormalRestStart).toFixed(1)}秒)`, `[FSM] Fall confirmed (abnormal rest for ${(now-abnormalRestStart).toFixed(1)}s)`));
+                        // 记录摔倒事件
+                        const fallEvent = {
+                            timestamp: new Date().toISOString(),
+                            lat: dataPoint.lat,
+                            lng: dataPoint.lng,
+                            accMax: acc,
+                            gyroMax: gyroMag,
+                            tilt: dataPoint.tilt_deg,
+                            speed: dataPoint.speed_kmh
+                        };
+                        fallEvents.push(fallEvent);
+                        document.getElementById('fallCount').innerText = fallEvents.length;
+                        // 在地图上标记摔倒点
+                        markFallOnMap(fallEvent);
+                    }
+                } else {
+                    abnormalRestStart = 0;
+                }
+                // 如果条件不再满足且未确认，可能站起来继续滑，重置状态
+                if (abnormalRestStart === 0 && !(tiltOk && speedOk && gyroOk && accOk)) {
+                    newState = FSM.NORMAL;
+                    addDebugMsg(t(`[FSM] 未确认摔倒，恢复正常`, `[FSM] No fall confirmed, back to normal`));
+                }
+                break;
+            case FSM.ABNORMAL_REST:
+                // 如果用户站起来了，重置状态
+                if (Math.abs(acc - 1.0) > 0.3 || gyroMag > 30 || speed > 2.0) {
+                    newState = FSM.NORMAL;
+                    abnormalRestStart = 0;
+                    addDebugMsg(t(`[FSM] 恢复正常滑行`, `[FSM] Resumed normal skiing`));
+                }
+                break;
+        }
+        
+        if (newState !== currentState) {
+            currentState = newState;
+            updateFSMDisplay();
+        }
+    }
+    
+    function updateFSMDisplay() {
+        let stateText = "";
+        switch(currentState) {
+            case FSM.NORMAL: stateText = t("正常", "Normal"); break;
+            case FSM.LOSS_OF_CONTROL: stateText = t("失控/腾空", "Loss of control"); break;
+            case FSM.IMPACT: stateText = t("撞击", "Impact"); break;
+            case FSM.ABNORMAL_REST: stateText = t("异常静止(摔倒)", "Abnormal rest (fall)"); break;
+        }
+        document.getElementById('fsmStatus').innerHTML = `<i class="fas fa-microchip"></i> ${t("状态机: ", "FSM: ")}${stateText}`;
+    }
+    
+    // 在地图上标记摔倒点（红色大圆点+警示图标）
+    function markFallOnMap(fallEvent) {
+        if (!map) return;
+        const [gcjLng, gcjLat] = wgs84ToGcj02(fallEvent.lng, fallEvent.lat);
+        const fallIcon = L.divIcon({
+            html: '<div class="fall-marker"><i class="fas fa-exclamation-triangle"></i></div>',
+            iconSize: [24, 24],
+            className: 'fall-marker-container'
+        });
+        const marker = L.marker([gcjLat, gcjLng], { icon: fallIcon }).addTo(map);
+        const popupContent = currentLang === 'zh' ?
+            `<strong>⚠️ 摔倒事件</strong><br>时间: ${new Date(fallEvent.timestamp).toLocaleString()}<br>加速度峰值: ${fallEvent.accMax.toFixed(2)}g<br>角速度峰值: ${fallEvent.gyroMax.toFixed(0)}°/s<br>姿态倾角: ${fallEvent.tilt.toFixed(1)}°<br>速度: ${fallEvent.speed.toFixed(1)} km/h` :
+            `<strong>⚠️ Fall Event</strong><br>Time: ${new Date(fallEvent.timestamp).toLocaleString()}<br>Peak Acc: ${fallEvent.accMax.toFixed(2)}g<br>Peak Gyro: ${fallEvent.gyroMax.toFixed(0)}°/s<br>Tilt: ${fallEvent.tilt.toFixed(1)}°<br>Speed: ${fallEvent.speed.toFixed(1)} km/h`;
+        marker.bindPopup(popupContent);
+        // 额外在轨迹点图层中将该点变为红色圆点（需要记录该点的索引，我们简单在现有轨迹中查找最近添加的点）
+        if (pointMarkersLayer) {
+            pointMarkersLayer.eachLayer(layer => {
+                if (layer instanceof L.CircleMarker && layer.dataPoint && 
+                    Math.abs(layer.dataPoint.lat - fallEvent.lat) < 0.00001 && 
+                    Math.abs(layer.dataPoint.lng - fallEvent.lng) < 0.00001) {
+                    layer.setStyle({ fillColor: "#e34132", color: "#a02010", radius: 6, fillOpacity: 0.9 });
+                    layer.bindPopup(formatPointPopup(layer.dataPoint) + "<br><strong style='color:red;'>" + t("⚠️ 摔倒点", "⚠️ Fall point") + "</strong>");
+                }
+            });
+        }
+    }
+    
+    // 重置摔倒检测状态（开始新记录时调用）
+    function resetFallDetection() {
+        currentState = FSM.NORMAL;
+        stateEnterTime = 0;
+        impactDetected = false;
+        impactTimestamp = 0;
+        abnormalRestStart = 0;
+        fallEvents = [];
+        document.getElementById('fallCount').innerText = "0";
+        updateFSMDisplay();
+    }
+
+    // ==================== 轨迹与地图 ====================
+    let map = null, marker = null, circle = null;
+    let pollInterval = null;
+    let currentUid = "c3ace5d30eaaaf913aec1965b85384a1";
+    let currentTopic = "gps001";
+    let currentType = "1";
+    const API_BASE = "https://apis.bemfa.com/va/getmsg";
+    let isRecording = false;
+    let recordedData = [];
+    let recordStartTime = null;
+    let currentEquipment = "snowboard";
+    
+    let currentPolyline = null;
+    let pointMarkersLayer = null;
+    let startMarker = null;
+    let endMarker = null;
+    let trackPointsGCJ = [];
+    
+    const startBtn = document.getElementById('startRecordBtn');
+    const stopBtn = document.getElementById('stopRecordBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const recordStatsSpan = document.getElementById('recordStats');
+    const trackPointCountSpan = document.getElementById('trackPointCount');
+    
+    function updateTrackCountUI() { if(trackPointCountSpan) trackPointCountSpan.innerText = trackPointsGCJ.length; }
+    
+    function formatPointPopup(data) {
+        const timestamp = data.timestamp ? new Date(data.timestamp).toLocaleString() : '--';
+        const lat = data.lat ? data.lat.toFixed(6) : '--';
+        const lng = data.lng ? data.lng.toFixed(6) : '--';
+        const speed = data.speed_kmh ? data.speed_kmh.toFixed(1) : '0.0';
+        const alt = data.altitude_m ? data.altitude_m.toFixed(1) : '0.0';
+        const gforce = data.g_force ? data.g_force.toFixed(2) : '0.00';
+        const tilt = data.tilt_deg ? data.tilt_deg.toFixed(1) : '0.0';
+        const gx = data.gx ? data.gx.toFixed(1) : '0.0';
+        const gy = data.gy ? data.gy.toFixed(1) : '0.0';
+        const gz = data.gz ? data.gz.toFixed(1) : '0.0';
+        
+        if (currentLang === 'zh') {
+            return `<div style="min-width:200px;">
+                <strong>📍 轨迹点数据</strong><br>
+                🕒 时间: ${timestamp}<br>
+                🌐 纬度: ${lat}°<br>
+                🌐 经度: ${lng}°<br>
+                ⚡ 速度: ${speed} km/h<br>
+                🏔 海拔: ${alt} m<br>
+                📊 合成G力: ${gforce} g<br>
+                📐 姿态倾角: ${tilt}°<br>
+                🔄 角速度 X: ${gx} °/s<br>
+                🔄 角速度 Y: ${gy} °/s<br>
+                🔄 角速度 Z: ${gz} °/s
+            </div>`;
+        } else {
+            return `<div style="min-width:200px;">
+                <strong>📍 Track Point Data</strong><br>
+                🕒 Time: ${timestamp}<br>
+                🌐 Lat: ${lat}°<br>
+                🌐 Lng: ${lng}°<br>
+                ⚡ Speed: ${speed} km/h<br>
+                🏔 Altitude: ${alt} m<br>
+                📊 G-Force: ${gforce} g<br>
+                📐 Tilt Angle: ${tilt}°<br>
+                🔄 Gyro X: ${gx} °/s<br>
+                🔄 Gyro Y: ${gy} °/s<br>
+                🔄 Gyro Z: ${gz} °/s
+            </div>`;
+        }
+    }
+    
+    function refreshAllPointPopups() {
+        if (!pointMarkersLayer) return;
+        pointMarkersLayer.eachLayer(layer => {
+            if (layer instanceof L.CircleMarker && layer.dataPoint) {
+                layer.bindPopup(formatPointPopup(layer.dataPoint));
+            }
+        });
+    }
+    
+    function clearTrackFromMap() {
+        if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+        if (pointMarkersLayer) { pointMarkersLayer.clearLayers(); }
+        if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+        if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
+        trackPointsGCJ = [];
+        updateTrackCountUI();
+    }
+    
+    function appendTrackPoint(wgsLat, wgsLng, dataPoint) {
+        if (!isRecording) return;
+        if (wgsLat === undefined || wgsLng === undefined || isNaN(wgsLat) || isNaN(wgsLng)) return;
+        if (Math.abs(wgsLat) < 0.000001 && Math.abs(wgsLng) < 0.000001) return;
+        const [gcjLng, gcjLat] = wgs84ToGcj02(wgsLng, wgsLat);
+        const newPoint = [gcjLat, gcjLng];
+        if (trackPointsGCJ.length > 0) {
+            const last = trackPointsGCJ[trackPointsGCJ.length-1];
+            if (Math.abs(last[0] - newPoint[0]) < 1e-7 && Math.abs(last[1] - newPoint[1]) < 1e-7) return;
+        }
+        trackPointsGCJ.push(newPoint);
+        updateTrackCountUI();
+        
+        // 普通橙色圆点
+        const circleMarker = L.circleMarker(newPoint, {
+            radius: 4,
+            fillColor: "#ff8c42",
+            color: "#e35f21",
+            weight: 1,
+            opacity: 0.8,
+            fillOpacity: 0.7
+        });
+        circleMarker.dataPoint = dataPoint;
+        circleMarker.bindPopup(formatPointPopup(dataPoint));
+        
+        if (pointMarkersLayer) {
+            pointMarkersLayer.addLayer(circleMarker);
+        } else {
+            pointMarkersLayer = L.layerGroup().addTo(map);
+            pointMarkersLayer.addLayer(circleMarker);
+        }
+        
+        if (currentPolyline) {
+            currentPolyline.setLatLngs(trackPointsGCJ);
+        } else if (trackPointsGCJ.length >= 2) {
+            currentPolyline = L.polyline(trackPointsGCJ, { color: "#e34132", weight: 4, opacity: 0.9, smoothFactor: 1.0 }).addTo(map);
+        }
+        
+        if (trackPointsGCJ.length >= 1) {
+            if (!startMarker) {
+                startMarker = L.marker(trackPointsGCJ[0], { icon: L.divIcon({ html: '<div style="background-color:#2bc48a; width:24px; height:24px; border-radius:50%; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center;"><i class="fas fa-play" style="color:white; font-size:10px;"></i></div>', iconSize: [24,24], className: 'start-marker' }) }).addTo(map).bindTooltip(t("起点", "Start"), { permanent: false });
+            } else {
+                startMarker.setLatLng(trackPointsGCJ[0]);
+            }
+            if (!endMarker) {
+                endMarker = L.marker(trackPointsGCJ[trackPointsGCJ.length-1], { icon: L.divIcon({ html: '<div style="background-color:#ff8c42; width:24px; height:24px; border-radius:50%; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center;"><i class="fas fa-flag-checkered" style="color:white; font-size:10px;"></i></div>', iconSize: [24,24], className: 'end-marker' }) }).addTo(map).bindTooltip(t("终点", "End"), { permanent: false });
+            } else {
+                endMarker.setLatLng(trackPointsGCJ[trackPointsGCJ.length-1]);
+            }
+        }
+    }
+    
+    // 装备选择
+    const equipSnowboard = document.getElementById('equipSnowboard');
+    const equipSki = document.getElementById('equipSki');
+    function setEquipmentUI(equip) { currentEquipment = equip; equipSnowboard.classList.toggle('active', equip==='snowboard'); equipSki.classList.toggle('active', equip==='ski'); }
+    equipSnowboard.addEventListener('click', () => setEquipmentUI('snowboard'));
+    equipSki.addEventListener('click', () => setEquipmentUI('ski'));
+    setEquipmentUI('snowboard');
+    
+    function initMap() { 
+        const defaultWgsLng = 116.4074; const defaultWgsLat = 39.9042; 
+        const [gcjLng, gcjLat] = wgs84ToGcj02(defaultWgsLng, defaultWgsLat); 
+        map = L.map('map').setView([gcjLat, gcjLng], 10); 
+        L.tileLayer('https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', { attribution: '&copy; 高德地图', maxZoom: 18 }).addTo(map); 
+        const helmetIcon = L.divIcon({ html: '<div style="background-color:#e34132; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.3); border:2px solid white;"><i class="fas fa-hard-hat" style="color:white; font-size:14px;"></i></div>', iconSize: [28, 28], className: 'custom-helmet-marker' }); 
+        marker = L.marker([gcjLat, gcjLng], { icon: helmetIcon }).addTo(map); 
+        circle = L.circle([gcjLat, gcjLng], { color: '#e34132', weight: 1, fillColor: '#ff8a5c', fillOpacity: 0.15, radius: 15 }).addTo(map); 
+        pointMarkersLayer = L.layerGroup().addTo(map);
+    }
+    
+    function updateMapLocation(wgsLng, wgsLat, isValid) { 
+        if (!map || !marker || !circle) return; 
+        if (isValid && typeof wgsLat === 'number' && !isNaN(wgsLat) && !isNaN(wgsLng) && (wgsLat !== 0 || wgsLng !== 0)) { 
+            const [gcjLng, gcjLat] = wgs84ToGcj02(wgsLng, wgsLat); 
+            marker.setLatLng([gcjLat, gcjLng]); 
+            circle.setLatLng([gcjLat, gcjLng]); 
+            map.setView([gcjLat, gcjLng], map.getZoom()); 
+            document.getElementById('gpsStatusBadge').innerHTML = '<i class="fas fa-check-circle"></i> ' + t('定位有效', 'Valid GPS'); 
+            document.getElementById('gpsStatusBadge').style.background = "#d4f0e8"; 
+            document.getElementById('gpsStatusBadge').style.color = "#1c6e43"; 
+        } else { 
+            document.getElementById('gpsStatusBadge').innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + t('搜星中 / 无有效坐标', 'Searching / No GPS'); 
+            document.getElementById('gpsStatusBadge').style.background = "#ffe0cc"; 
+            document.getElementById('gpsStatusBadge').style.color = "#b95a1a"; 
+        } 
+    }
+    
+    function updateDashboard(data) { 
+        const lat = data.lat !== undefined ? parseFloat(data.lat) : null; 
+        const lng = data.lng !== undefined ? parseFloat(data.lng) : null; 
+        const speed = data.spd !== undefined ? parseFloat(data.spd) : 0; 
+        const altitude = data.alt !== undefined ? parseFloat(data.alt) : 0; 
+        const gForce = data.g !== undefined ? parseFloat(data.g) : 0; 
+        const tilt = data.tlt !== undefined ? parseFloat(data.tlt) : 0; 
+        const gx = data.gyx !== undefined ? parseFloat(data.gyx) : 0;
+        const gy = data.gyy !== undefined ? parseFloat(data.gyy) : 0;
+        const gz = data.gyz !== undefined ? parseFloat(data.gyz) : 0;
+        if (lat !== null && !isNaN(lat) && (lat !== 0 || lng !== 0)) { 
+            document.getElementById('latVal').innerHTML = lat.toFixed(6) + "°"; 
+            document.getElementById('lngVal').innerHTML = lng.toFixed(6) + "°"; 
+        } else { 
+            document.getElementById('latVal').innerHTML = t("等待GPS", "Wait GPS"); 
+            document.getElementById('lngVal').innerHTML = t("无效坐标", "Invalid Coord"); 
+        } 
+        document.getElementById('speedVal').innerHTML = speed.toFixed(1); 
+        document.getElementById('altVal').innerHTML = altitude.toFixed(1); 
+        document.getElementById('gVal').innerHTML = gForce.toFixed(2); 
+        document.getElementById('tiltVal').innerHTML = tilt.toFixed(1); 
+        document.getElementById('gxVal').innerHTML = gx.toFixed(1);
+        document.getElementById('gyVal').innerHTML = gy.toFixed(1);
+        document.getElementById('gzVal').innerHTML = gz.toFixed(1);
+        const isValidLocation = (lat !== null && lng !== null && !isNaN(lat) && !isNaN(lng) && (Math.abs(lat) > 0.000001 || Math.abs(lng) > 0.000001)); 
+        if (isValidLocation && lat !== null && lng !== null) updateMapLocation(lng, lat, true); else updateMapLocation(0, 0, false); 
+        if (isRecording && isValidLocation && lat !== null && lng !== null) { 
+            const dataPoint = { 
+                timestamp: new Date().toISOString(), 
+                lat: lat, lng: lng, 
+                speed_kmh: speed, altitude_m: altitude, 
+                g_force: gForce, tilt_deg: tilt, 
+                gx: gx, gy: gy, gz: gz
+            };
+            recordedData.push(dataPoint);
+            if (recordedData.length > 5000) recordedData = recordedData.slice(-4000);
+            appendTrackPoint(lat, lng, dataPoint);
+            updateFSM(dataPoint);   // 摔倒检测
+            updateRecordStatsDisplay(); 
+        } 
+    }
+    
+    function updateRecordStatsDisplay() { 
+        if (!isRecording) { 
+            recordStatsSpan.innerHTML = `<i class="fas fa-database"></i> ${t("未记录 | 共 ", "Not recorded | ")} ${recordedData.length} ${t(" 个数据点", " pts")}`; 
+            return; 
+        } 
+        const duration = recordStartTime ? ((Date.now() - recordStartTime) / 1000).toFixed(0) : 0; 
+        recordStatsSpan.innerHTML = `<i class="fas fa-circle" style="color:#e34132; font-size:0.7rem;"></i> ${t("记录中 · 时长 ", "Recording · ")}${duration}s · ${t("点数 ", "Pts ")}${recordedData.length}`; 
+    }
+    
+    function startRecording() { 
+        if (isRecording) return alert(t("已在记录中", "Already recording")); 
+        recordedData = []; 
+        recordStartTime = Date.now(); 
+        isRecording = true; 
+        startBtn.disabled = true; 
+        stopBtn.disabled = false; 
+        resetFallDetection();   // 重置摔倒检测
+        clearTrackFromMap();
+        updateRecordStatsDisplay(); 
+        addDebugMsg(t("开始记录 | 摔倒检测已启用", "Start recording | Fall detection enabled"));
+    }
+    
+    function stopRecording() { 
+        if (!isRecording) return; 
+        isRecording = false; 
+        startBtn.disabled = false; 
+        stopBtn.disabled = true; 
+        updateRecordStatsDisplay(); 
+        addDebugMsg(t(`记录已停止，共检测到 ${fallEvents.length} 次摔倒`, `Recording stopped, detected ${fallEvents.length} fall(s)`));
+        alert(t("记录已停止，共采集 ", "Recording stopped, collected ") + recordedData.length + t(" 个数据点。可导出CSV或AI分析。", " points. Ready to export or AI analysis."));
+    }
+    
+    function exportToCSV() { 
+        if (recordedData.length === 0) return alert(t("没有记录数据", "No data to export")); 
+        const headers = ["timestamp","latitude","longitude","speed_kmh","altitude_m","g_force","tilt_deg", "gx", "gy", "gz", "is_fall"]; 
+        const rows = recordedData.map(p => {
+            const isFall = fallEvents.some(f => Math.abs(f.lat - p.lat) < 0.00001 && Math.abs(f.lng - p.lng) < 0.00001);
+            return [p.timestamp, p.lat, p.lng, p.speed_kmh, p.altitude_m, p.g_force, p.tilt_deg, p.gx, p.gy, p.gz, isFall ? 1 : 0];
+        }); 
+        const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n'); 
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" }); 
+        const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.href = url; link.setAttribute("download", `${t("滑雪记录_", "SkiRecord_")}${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); addDebugMsg(t("已导出CSV，共", "Exported CSV, total ") + recordedData.length + t("条", " rows")); 
+    }
+    
+    function addDebugMsg(msg) { const debugDiv = document.getElementById('debugPanel'); if (debugDiv) { debugDiv.innerHTML = `<i class="fas fa-bug"></i> [${new Date().toLocaleTimeString()}] ${msg}<br>` + debugDiv.innerHTML; if (debugDiv.innerHTML.length > 5000) debugDiv.innerHTML = debugDiv.innerHTML.slice(0, 4500) + "...(截断)"; } }
+    
+    // AI分析（包含摔倒诊断）
+    async function analyzeWithLLM() { 
+        if (recordedData.length < 5) { alert(t("数据点不足(至少5个有效点)，请先开始记录并积累更多滑行数据", "Not enough data (min 5 pts). Please record more.")); return; }
+        const apiUrl = document.getElementById('llmApiUrl').value.trim();
+        const apiKey = document.getElementById('llmApiKey').value.trim();
+        const model = document.getElementById('llmModel').value.trim();
+        if (!apiUrl || !apiKey || !model) { alert(t("请填写完整的大模型API配置", "Please fill out API URL, Key, and Model.")); return; }
+        const resultDiv = document.getElementById('aiResultArea');
+        resultDiv.innerHTML = '<div class="ai-loading" style="margin-right:8px;"></div> ' + t('AI教练正在分析您的滑行数据，请稍候...', 'AI Coach is analyzing your data, please wait...');
+        
+        // 基础统计
+        const speeds = recordedData.map(d => d.speed_kmh); 
+        const gVals = recordedData.map(d => d.g_force); 
+        const tilts = recordedData.map(d => d.tilt_deg);
+        const avgSpeed = (speeds.reduce((a,b)=>a+b,0)/speeds.length).toFixed(1);
+        const maxSpeed = Math.max(...speeds).toFixed(1);
+        const maxG = Math.max(...gVals).toFixed(2);
+        const avgTilt = (tilts.reduce((a,b)=>a+b,0)/tilts.length).toFixed(1);
+        const tiltChanges = tilts.reduce((cnt,val,i)=> i>0 && Math.abs(val-tilts[i-1])>5 ? cnt+1:cnt,0);
+        const altitudeDrop = recordedData[0]?.altitude_m - recordedData[recordedData.length-1]?.altitude_m || 0;
+        let pathLen = 0; for(let i=1;i<recordedData.length;i++){ const R=6371e3; const φ1=recordedData[i-1].lat*Math.PI/180, φ2=recordedData[i].lat*Math.PI/180; const Δφ=(recordedData[i].lat-recordedData[i-1].lat)*Math.PI/180; const Δλ=(recordedData[i].lng-recordedData[i-1].lng)*Math.PI/180; const a_=Math.sin(Δφ/2)*Math.sin(Δφ/2)+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2); const c_=2*Math.atan2(Math.sqrt(a_),Math.sqrt(1-a_)); pathLen+=R*c_; }
+        const durationSec = (recordedData[recordedData.length-1]?.timestamp ? (new Date(recordedData[recordedData.length-1].timestamp) - new Date(recordedData[0].timestamp))/1000 : 0).toFixed(0);
+        const samplePoints = recordedData.filter((_,idx)=> idx % Math.max(1,Math.floor(recordedData.length/60)) === 0).slice(0,80).map(p=>`${p.speed_kmh.toFixed(1)}km/h,${p.g_force.toFixed(2)}g,${p.tilt_deg.toFixed(1)}°`).join("; ");
+        
+        // 摔倒事件描述
+        let fallDescription = "";
+        if (fallEvents.length > 0) {
+            fallDescription = t(`\n\n【摔倒事件统计】共发生 ${fallEvents.length} 次摔倒。`, `\n\n[Fall Events] Total ${fallEvents.length} fall(s).`);
+            for (let i=0; i<fallEvents.length; i++) {
+                const f = fallEvents[i];
+                fallDescription += t(`\n摔倒 #${i+1}: 时间 ${new Date(f.timestamp).toLocaleString()}, 位置 (${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}), 加速度峰值 ${f.accMax.toFixed(2)}g, 角速度峰值 ${f.gyroMax.toFixed(0)}°/s, 倾角 ${f.tilt.toFixed(1)}°, 速度 ${f.speed.toFixed(1)} km/h。`, 
+                    `\nFall #${i+1}: Time ${new Date(f.timestamp).toLocaleString()}, Pos (${f.lat.toFixed(5)}, ${f.lng.toFixed(5)}), Peak Acc ${f.accMax.toFixed(2)}g, Peak Gyro ${f.gyroMax.toFixed(0)}°/s, Tilt ${f.tilt.toFixed(1)}°, Speed ${f.speed.toFixed(1)} km/h.`);
+            }
+            fallDescription += t("\n请根据这些摔倒事件的数据特征，分析可能的摔倒原因（如重心后坐、卡刃、速度过快、姿态失控等），并给出针对性的技术改进建议和安全提醒。", 
+                "\nPlease analyze the possible causes of these falls (e.g., leaning back, edge catch, excessive speed, loss of control) and provide technical improvement suggestions and safety tips.");
+        }
+        
+        const equipmentName = currentEquipment === 'snowboard' ? t('单板🏂', 'Snowboard🏂') : t('双板🎿', 'Ski🎿');
+        const langInstruction = currentLang === 'zh' ? '请用中文回答。' : 'Please analyze and reply in English.';
+        const systemPrompt = `你是一位专业滑雪教练，精通${equipmentName}技术分析。根据用户滑雪数据，结合运动特征字典。给出: 1.识别的主要动作类型 2.技术优点 3.风险提示 4.改进建议。${fallEvents.length > 0 ? "特别关注摔倒事件，给出详细原因分析和纠正方法。" : ""} ${langInstruction}`;
+        const userMsg = t(`装备:${equipmentName}，点${recordedData.length}，时长${durationSec}s，路径${(pathLen/1000).toFixed(1)}km，均速${avgSpeed}km/h，极速${maxSpeed}km/h，最大G力${maxG}g，平均倾角${avgTilt}°，转向变化${tiltChanges}次。采样:${samplePoints.substring(0,1200)}。${fallDescription} 分析建议。`, 
+            `Equipment:${equipmentName}, ${recordedData.length}pts, duration ${durationSec}s, path ${(pathLen/1000).toFixed(1)}km, avg speed ${avgSpeed}km/h, max ${maxSpeed}km/h, max G ${maxG}g, avg tilt ${avgTilt}°, turns ~${tiltChanges}. Samples:${samplePoints.substring(0,1200)}. ${fallDescription} Provide analysis.`);
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify({ model: model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }], temperature: 0.7, max_tokens: 1200 }) });
+            if (!response.ok) throw new Error(`API响应失败 ${response.status}`);
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content || t("无法解析返回内容", "Cannot parse response");
+            resultDiv.innerHTML = `<i class="fas fa-robot" style="color:#2c5a6e;"></i> <strong>🏂 ${t('AI教练反馈', 'AI Coach Feedback')} (${equipmentName})</strong><br>${content.replace(/\n/g,'<br>')}`;
+            addDebugMsg(t(`AI分析完成`, `AI Analysis complete`));
+        } catch (err) { resultDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${t("分析请求失败: ", "Analysis failed: ")}${err.message}`; }
+    }
+    
+    function saveAiConfig() { localStorage.setItem('ski_llm_url', document.getElementById('llmApiUrl').value); localStorage.setItem('ski_llm_key', document.getElementById('llmApiKey').value); localStorage.setItem('ski_llm_model', document.getElementById('llmModel').value); alert(t("AI配置已保存至本地", "AI Config saved locally")); }
+    function loadAiConfig() { const url = localStorage.getItem('ski_llm_url'); if(url) document.getElementById('llmApiUrl').value = url; const key = localStorage.getItem('ski_llm_key'); if(key) document.getElementById('llmApiKey').value = key; const model = localStorage.getItem('ski_llm_model'); if(model) document.getElementById('llmModel').value = model; }
+    
+    // 巴法云轮询
+    async function fetchBemfaData() { const uid = currentUid.trim(); const topic = currentTopic.trim(); const type = currentType; if (!uid || !topic) { document.getElementById('updateTimeDisplay').innerHTML = '<i class="far fa-clock"></i> ' + t('配置无效', 'Invalid Config'); return; } const url = `${API_BASE}?uid=${encodeURIComponent(uid)}&topic=${encodeURIComponent(topic)}&type=${type}`; try { const response = await fetch(url); if (!response.ok) throw new Error(`HTTP ${response.status}`); const result = await response.json(); if (result.code === 0 && result.data && Array.isArray(result.data) && result.data.length > 0) { const latestMsg = result.data[0]; let msgContent = latestMsg.msg; try { let sensorData = (typeof msgContent === 'string') ? JSON.parse(msgContent) : msgContent; if (sensorData && typeof sensorData === 'object') { updateDashboard(sensorData); document.getElementById('updateTimeDisplay').innerHTML = `<i class="far fa-clock"></i> ${t("数据时间: ", "Data Time: ")} ${latestMsg.time || new Date().toLocaleTimeString()}`; } else throw new Error(t("无效对象", "Invalid object")); } catch (parseErr) { addDebugMsg(`${t("数据格式错误", "Data format error")}: ${msgContent}`); } } else { addDebugMsg(t("无历史消息", "No history messages")); } } catch (err) { document.getElementById('updateTimeDisplay').innerHTML = `<i class="far fa-clock"></i> ${t("获取失败 ", "Fetch failed ")}`; addDebugMsg(t(`请求失败: `, `Request failed: `) + err.message); } }
+    function startPolling(intervalMs = 200) { if (pollInterval) clearInterval(pollInterval); fetchBemfaData(); pollInterval = setInterval(fetchBemfaData, intervalMs); }
+    function reloadConfiguration() { const newUid = document.getElementById('uidInput').value.trim(); const newTopic = document.getElementById('topicInput').value.trim(); const newType = document.getElementById('typeSelect').value; if (!newUid || !newTopic) { alert(t("UID 和 Topic 不能为空", "UID and Topic cannot be empty")); return; } if(isRecording) { stopRecording(); } clearTrackFromMap(); recordedData = []; isRecording = false; startBtn.disabled = false; stopBtn.disabled = true; currentUid = newUid; currentTopic = newTopic; currentType = newType; stopPolling(); startPolling(200); resetFallDetection(); addDebugMsg(t(`配置已切换: UID=${currentUid}`, `Config switched: UID=${currentUid}`)); }
+    function stopPolling() { if (pollInterval) clearInterval(pollInterval); pollInterval = null; }
+    
+    // 折叠UI
+    let aiCollapsed = false; document.getElementById('aiHeaderToggle').addEventListener('click', ()=>{ aiCollapsed = !aiCollapsed; document.getElementById('aiBody').style.display = aiCollapsed ? 'none' : 'block'; });
+    const debugHeader = document.getElementById('debugHeader'); const debugPanelDiv = document.getElementById('debugPanel'); const debugIcon = document.getElementById('debugToggleIcon');
+    debugHeader.addEventListener('click', () => { const isHidden = debugPanelDiv.style.display === 'none'; debugPanelDiv.style.display = isHidden ? 'block' : 'none'; debugIcon.classList.toggle('fa-chevron-down', !isHidden); debugIcon.classList.toggle('fa-chevron-up', isHidden); });
+    debugPanelDiv.style.display = 'none'; debugIcon.classList.add('fa-chevron-down');
+    
+    window.addEventListener('DOMContentLoaded', () => { initMap(); startPolling(200); document.getElementById('applyBtn').addEventListener('click', reloadConfiguration); startBtn.addEventListener('click', startRecording); stopBtn.addEventListener('click', stopRecording); exportBtn.addEventListener('click', exportToCSV); document.getElementById('analyzeWithAI').addEventListener('click', analyzeWithLLM); document.getElementById('saveAiConfigBtn').addEventListener('click', saveAiConfig); loadAiConfig(); addDebugMsg(t("系统已启动 | 摔倒检测状态机已就绪，红色标记为摔倒点", "System started | Fall detection FSM ready, red markers indicate falls")); });
+</script>
+</body>
+</html>
